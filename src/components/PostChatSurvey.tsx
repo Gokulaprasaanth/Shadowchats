@@ -2,15 +2,10 @@ import { motion } from "framer-motion";
 import { MessageCircle } from "lucide-react";
 
 interface PostChatSurveyProps {
-  onComplete: () => void;
+  onComplete: (gender?: string) => void;
 }
 
 const PostChatSurvey = ({ onComplete }: PostChatSurveyProps) => {
-  const handleSelect = () => {
-    // Gender data is not stored — immediately proceed
-    onComplete();
-  };
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-noise relative">
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-primary/5 blur-[100px] pointer-events-none" />
@@ -35,27 +30,31 @@ const PostChatSurvey = ({ onComplete }: PostChatSurveyProps) => {
             Optional: What gender do you identify as?
           </p>
           <div className="grid grid-cols-3 gap-2">
-            {["Male", "Female", "Prefer not to say"].map(option => (
+            {[
+              { label: "Male", value: "male" },
+              { label: "Female", value: "female" },
+              { label: "Prefer not to say", value: "prefer_not" },
+            ].map((option) => (
               <button
-                key={option}
-                onClick={handleSelect}
+                key={option.value}
+                onClick={() => onComplete(option.value)}
                 className="py-2.5 px-3 rounded-lg border border-border bg-secondary/30 text-sm text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all"
               >
-                {option}
+                {option.label}
               </button>
             ))}
           </div>
         </div>
 
         <button
-          onClick={onComplete}
+          onClick={() => onComplete()}
           className="w-full py-3.5 rounded-xl bg-gradient-warm text-primary-foreground font-semibold glow-primary hover:opacity-90 transition-all"
         >
           Find New Stranger
         </button>
 
         <button
-          onClick={onComplete}
+          onClick={() => onComplete()}
           className="mt-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           Back to Home

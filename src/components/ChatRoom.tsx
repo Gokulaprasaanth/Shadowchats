@@ -1,50 +1,32 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, SkipForward, Flag, Dice5 } from "lucide-react";
-import { ChatMessage, ChatMode, TruthOrDareType } from "@/types/chat";
-import { moderateMessage, getModerationWarning } from "@/utils/moderation";
+import { ChatMode, TruthOrDareType } from "@/types/chat";
 import { getRandomTruth, getRandomDare } from "@/data/truthOrDare";
+import { useChat } from "@/hooks/useChat";
 import TruthOrDareModal from "./TruthOrDareModal";
 
 interface ChatRoomProps {
   mode: ChatMode;
-  onSkip: () => void;
-  onReport: () => void;
-  onDisconnect: () => void;
+  sessionId: string;
+  role: "user1" | "user2";
+  onEnd: () => void;
 }
 
-const strangerResponses = [
-  "That's interesting, tell me more...",
-  "Hmm, I feel the same way sometimes.",
-  "I've never thought about it like that before.",
-  "Wow, that's bold. I respect that.",
-  "I can relate to that more than you'd think.",
-  "That actually made me think...",
-  "You're more open than most people I talk to here.",
-  "I appreciate you sharing that.",
-  "That's a fascinating perspective.",
-  "I've had a similar experience actually.",
-];
-
-const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "sys-1",
-      text: "You're now connected with a stranger. Be bold, be kind.",
-      sender: "system",
-      timestamp: new Date(),
-    },
-  ]);
+const ChatRoom = ({ mode, sessionId, role, onEnd }: ChatRoomProps) => {
   const [input, setInput] = useState("");
-  const [isStrangerTyping, setIsStrangerTyping] = useState(false);
   const [todOpen, setTodOpen] = useState(false);
   const [todPrompt, setTodPrompt] = useState<string | null>(null);
   const [todType, setTodType] = useState<TruthOrDareType | null>(null);
   const [todRoundsUsed, setTodRoundsUsed] = useState(0);
-  const [violations, setViolations] = useState(0);
-  const [lastMessageTime, setLastMessageTime] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const { messages, isStrangerTyping, sendMessage, endSession, reportUser, setMessages } = useChat({
+    sessionId,
+    role,
+    onDisconnected: onEnd,
+  });
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,59 +36,29 @@ const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
     scrollToBottom();
   }, [messages, isStrangerTyping, scrollToBottom]);
 
-  const addMessage = (text: string, sender: ChatMessage["sender"]) => {
-    setMessages(prev => [
-      ...prev,
-      { id: `${sender}-${Date.now()}`, text, sender, timestamp: new Date() },
-    ]);
-  };
-
-  const simulateStrangerResponse = () => {
-    setIsStrangerTyping(true);
-    const delay = 1500 + Math.random() * 3000;
-    setTimeout(() => {
-      setIsStrangerTyping(false);
-      const response = strangerResponses[Math.floor(Math.random() * strangerResponses.length)];
-      addMessage(response, "stranger");
-    }, delay);
-  };
-
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input.trim();
     if (!text) return;
 
-    // Rate limit: 1 message per second
-    const now = Date.now();
-    if (now - lastMessageTime < 1000) {
-      addMessage(getModerationWarning("spam"), "system");
-      return;
-    }
-    setLastMessageTime(now);
-
-    const modResult = moderateMessage(text);
-    if (!modResult.allowed) {
-      const warning = getModerationWarning(modResult.reason);
-      addMessage(warning, "system");
-
-      if (modResult.reason === "minor") {
-        setTimeout(onDisconnect, 1500);
-        return;
-      }
-
-      const newViolations = violations + 1;
-      setViolations(newViolations);
-      if (newViolations >= 3) {
-        addMessage("⚠️ Too many violations. You have been disconnected.", "system");
-        setTimeout(onDisconnect, 1500);
-        return;
-      }
-      setInput("");
-      return;
-    }
-
-    addMessage(text, "you");
     setInput("");
-    simulateStrangerResponse();
+    const result = await sendMessage(text);
+
+    if (!result.success && result.warning) {
+      setMessages((prev) => [
+        ...prev,
+        { id: `warn-${Date.now()}`, text: result.warning!, sender: "system", timestamp: new Date() },
+      ]);
+    }
+  };
+
+  const handleSkip = async () => {
+    await endSession();
+    onEnd();
+  };
+
+  const handleReport = async () => {
+    await reportUser("reported_by_user");
+    onEnd();
   };
 
   const handleTodChoose = (type: TruthOrDareType) => {
@@ -116,8 +68,16 @@ const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
 
   const handleTodClose = () => {
     if (todPrompt && todType) {
-      addMessage(`🎲 ${todType === "truth" ? "Truth" : "Dare"}: ${todPrompt}`, "system");
-      setTodRoundsUsed(prev => prev + 1);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `tod-${Date.now()}`,
+          text: `🎲 ${todType === "truth" ? "Truth" : "Dare"}: ${todPrompt}`,
+          sender: "system",
+          timestamp: new Date(),
+        },
+      ]);
+      setTodRoundsUsed((prev) => prev + 1);
     }
     setTodOpen(false);
     setTodPrompt(null);
@@ -160,14 +120,14 @@ const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
             </button>
           )}
           <button
-            onClick={onSkip}
+            onClick={handleSkip}
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
             title="Skip"
           >
             <SkipForward className="w-5 h-5" />
           </button>
           <button
-            onClick={onReport}
+            onClick={handleReport}
             className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
             title="Report"
           >
@@ -179,7 +139,7 @@ const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         <AnimatePresence initial={false}>
-          {messages.map(msg => (
+          {messages.map((msg) => (
             <motion.div
               key={msg.id}
               initial={{ opacity: 0, y: 10 }}
@@ -209,14 +169,10 @@ const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
         </AnimatePresence>
 
         {isStrangerTyping && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex justify-start"
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
             <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-secondary text-secondary-foreground">
               <div className="flex gap-1">
-                {[0, 1, 2].map(i => (
+                {[0, 1, 2].map((i) => (
                   <motion.div
                     key={i}
                     className="w-2 h-2 rounded-full bg-muted-foreground/50"
@@ -228,7 +184,6 @@ const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
             </div>
           </motion.div>
         )}
-
         <div ref={messagesEndRef} />
       </div>
 
@@ -238,7 +193,7 @@ const ChatRoom = ({ mode, onSkip, onReport, onDisconnect }: ChatRoomProps) => {
           <input
             ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             className="flex-1 bg-secondary/50 border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all"
