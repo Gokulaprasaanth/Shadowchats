@@ -54,11 +54,20 @@ npm run dev
 
 This project is built with:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- **Vite** – Fast build tool and dev server
+- **React 18** – UI framework
+- **TypeScript** – Type-safe JavaScript
+- **Tailwind CSS** – Utility-first CSS framework
+- **shadcn/ui** – Accessible UI components (Radix UI primitives)
+- **Supabase** – Real-time database, matching queue & messaging
+- **Framer Motion** – Animations
+- **React Router DOM** – Client-side routing
+- **React Query (TanStack)** – Server state management
+- **React Hook Form + Zod** – Form handling & validation
+- **Recharts** – Charting library
+- **Lucide React** – Icon set
+- **Sonner** – Toast notifications
+- **date-fns** – Date utilities
 
 ## How can I deploy this project?
 
