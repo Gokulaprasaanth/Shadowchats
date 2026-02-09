@@ -29,7 +29,7 @@ const LandingScreen = ({ onStart }: LandingScreenProps) => {
         </motion.div>
 
         <h1 className="text-5xl md:text-6xl font-bold mb-4 tracking-tight">
-          <span className="text-gradient">Whisper</span>
+          <span className="text-gradient">BananDonut</span>
         </h1>
         <p className="text-lg text-muted-foreground mb-10 leading-relaxed">
           Talk to strangers. Share confessions. Be bold.
