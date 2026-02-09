@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { ChatMode } from "@/types/chat";
+import { useMatchmaking } from "@/hooks/useMatchmaking";
 
 interface MatchingQueueProps {
   mode: ChatMode;
-  onMatched: () => void;
+  onMatched: (sessionId: string, role: "user1" | "user2") => void;
   onCancel: () => void;
 }
 
@@ -16,23 +17,22 @@ const modeLabels: Record<ChatMode, string> = {
 };
 
 const MatchingQueue = ({ mode, onMatched, onCancel }: MatchingQueueProps) => {
-  const [dots, setDots] = useState("");
+  const { state, match, joinQueue, cleanup } = useMatchmaking(mode);
 
   useEffect(() => {
-    const dotInterval = setInterval(() => {
-      setDots(d => (d.length >= 3 ? "" : d + "."));
-    }, 500);
-
-    // Simulate matching after 2-4 seconds
-    const matchTimeout = setTimeout(() => {
-      onMatched();
-    }, 2000 + Math.random() * 2000);
-
+    joinQueue();
     return () => {
-      clearInterval(dotInterval);
-      clearTimeout(matchTimeout);
+      cleanup();
     };
-  }, [onMatched]);
+  }, [joinQueue, cleanup]);
+
+  useEffect(() => {
+    if (state === "matched" && match) {
+      onMatched(match.sessionId, match.role);
+    }
+  }, [state, match, onMatched]);
+
+  const dots = state === "queued" ? "..." : "";
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-noise relative">
@@ -56,7 +56,7 @@ const MatchingQueue = ({ mode, onMatched, onCancel }: MatchingQueueProps) => {
         <p className="text-xs text-muted-foreground/50 mb-8">You'll be connected anonymously</p>
 
         <button
-          onClick={onCancel}
+          onClick={() => { cleanup(); onCancel(); }}
           className="px-6 py-2.5 rounded-lg border border-border bg-secondary/50 text-sm text-muted-foreground hover:text-foreground hover:border-border transition-all"
         >
           Cancel

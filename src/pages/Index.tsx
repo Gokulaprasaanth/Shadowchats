@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { AppScreen, ChatMode } from "@/types/chat";
+import { supabase } from "@/lib/supabase";
 import LandingScreen from "@/components/LandingScreen";
 import ModeSelection from "@/components/ModeSelection";
 import MatchingQueue from "@/components/MatchingQueue";
@@ -9,6 +10,8 @@ import PostChatSurvey from "@/components/PostChatSurvey";
 const Index = () => {
   const [screen, setScreen] = useState<AppScreen>("landing");
   const [mode, setMode] = useState<ChatMode>("free");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [role, setRole] = useState<"user1" | "user2">("user1");
 
   const handleStartChat = () => setScreen("mode-select");
 
@@ -17,13 +20,30 @@ const Index = () => {
     setScreen("matching");
   };
 
-  const handleMatched = useCallback(() => setScreen("chat"), []);
+  const handleMatched = useCallback((sid: string, r: "user1" | "user2") => {
+    setSessionId(sid);
+    setRole(r);
+    setScreen("chat");
+  }, []);
 
-  const handleEndChat = () => setScreen("post-chat");
+  const handleEndChat = () => {
+    setSessionId(null);
+    setScreen("post-chat");
+  };
 
   const handleNewChat = () => setScreen("mode-select");
 
   const handleBackToLanding = () => setScreen("landing");
+
+  const handlePostChatFeedback = async (gender?: string) => {
+    if (gender && sessionId) {
+      await supabase.from("post_chat_feedback").insert({
+        session_id: sessionId,
+        gender,
+      });
+    }
+    handleNewChat();
+  };
 
   return (
     <>
@@ -34,15 +54,10 @@ const Index = () => {
       {screen === "matching" && (
         <MatchingQueue mode={mode} onMatched={handleMatched} onCancel={handleBackToLanding} />
       )}
-      {screen === "chat" && (
-        <ChatRoom
-          mode={mode}
-          onSkip={handleEndChat}
-          onReport={handleEndChat}
-          onDisconnect={handleEndChat}
-        />
+      {screen === "chat" && sessionId && (
+        <ChatRoom mode={mode} sessionId={sessionId} role={role} onEnd={handleEndChat} />
       )}
-      {screen === "post-chat" && <PostChatSurvey onComplete={handleNewChat} />}
+      {screen === "post-chat" && <PostChatSurvey onComplete={handlePostChatFeedback} />}
     </>
   );
 };
