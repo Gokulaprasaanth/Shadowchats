@@ -45,7 +45,7 @@ export function useMatchmaking(mode: ChatMode) {
       .single();
 
     if (waiting) {
-      // Match found — create session, remove the other user from queue
+      // Match found — create session
       const { data: session } = await supabase
         .from("chat_sessions")
         .insert({ mode })
@@ -53,6 +53,13 @@ export function useMatchmaking(mode: ChatMode) {
         .single();
 
       if (session) {
+        // Stamp session_id onto user1's queue row before deleting
+        // so user1 receives it via the Realtime DELETE payload
+        await supabase
+          .from("match_queue")
+          .update({ session_id: session.id })
+          .eq("id", waiting.id);
+
         await supabase.from("match_queue").delete().eq("id", waiting.id);
         setState("matched");
         setMatch({ sessionId: session.id, role: "user2" });
@@ -82,21 +89,28 @@ export function useMatchmaking(mode: ChatMode) {
           table: "match_queue",
           filter: `id=eq.${entry.id}`,
         },
-        async () => {
-          // We were matched — find the most recent session for this mode
-          const { data: session } = await supabase
-            .from("chat_sessions")
-            .select("id")
-            .eq("mode", mode)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .single();
+        async (payload) => {
+          // The deleted row may carry session_id if user2 stamped it
+          const deletedRow = payload.old as { session_id?: string };
+          let sessionId = deletedRow?.session_id;
 
-          if (session) {
+          if (!sessionId) {
+            // Fallback: fetch the most recent session for this mode
+            const { data: session } = await supabase
+              .from("chat_sessions")
+              .select("id")
+              .eq("mode", mode)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .single();
+            sessionId = session?.id;
+          }
+
+          if (sessionId) {
             queueIdRef.current = null;
             channelRef.current = null;
             setState("matched");
-            setMatch({ sessionId: session.id, role: "user1" });
+            setMatch({ sessionId, role: "user1" });
           }
         }
       )
