@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { ChatMode } from "@/types/chat";
 
@@ -14,10 +14,17 @@ export function useMatchmaking(mode: ChatMode) {
   const [match, setMatch] = useState<MatchResult | null>(null);
   const queueIdRef = useRef<string | null>(null);
   const cleanedUpRef = useRef(false);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const cleanup = useCallback(async () => {
     if (cleanedUpRef.current) return;
     cleanedUpRef.current = true;
+
+    if (channelRef.current) {
+      await supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
     if (queueIdRef.current) {
       await supabase.from("match_queue").delete().eq("id", queueIdRef.current);
       queueIdRef.current = null;
@@ -28,7 +35,7 @@ export function useMatchmaking(mode: ChatMode) {
     cleanedUpRef.current = false;
     setState("queued");
 
-    // Check for existing waiting user in same mode
+    // Check for an existing waiting user in same mode
     const { data: waiting } = await supabase
       .from("match_queue")
       .select("id")
@@ -53,34 +60,30 @@ export function useMatchmaking(mode: ChatMode) {
       }
     }
 
-    // No match — enter queue and wait
+    // No match found — enter queue
     const { data: entry } = await supabase
       .from("match_queue")
       .insert({ mode })
       .select("id")
       .single();
 
-    if (entry) {
-      queueIdRef.current = entry.id;
-    }
-  }, [mode]);
+    if (!entry) return;
 
-  // Listen for being matched (someone created a session and removed us)
-  useEffect(() => {
-    if (state !== "queued" || !queueIdRef.current) return;
+    queueIdRef.current = entry.id;
 
+    // Subscribe to realtime DELETE on our queue row
     const channel = supabase
-      .channel(`queue-${queueIdRef.current}`)
+      .channel(`queue-${entry.id}`)
       .on(
         "postgres_changes",
         {
           event: "DELETE",
           schema: "public",
           table: "match_queue",
-          filter: `id=eq.${queueIdRef.current}`,
+          filter: `id=eq.${entry.id}`,
         },
         async () => {
-          // We were removed from queue — find the session
+          // We were matched — find the most recent session for this mode
           const { data: session } = await supabase
             .from("chat_sessions")
             .select("id")
@@ -91,6 +94,7 @@ export function useMatchmaking(mode: ChatMode) {
 
           if (session) {
             queueIdRef.current = null;
+            channelRef.current = null;
             setState("matched");
             setMatch({ sessionId: session.id, role: "user1" });
           }
@@ -98,26 +102,21 @@ export function useMatchmaking(mode: ChatMode) {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [state, mode]);
+    channelRef.current = channel;
 
-  // Cleanup on unmount / tab close
-  useEffect(() => {
+    // Cleanup on unmount / tab close
     const handleBeforeUnload = () => {
       if (queueIdRef.current) {
-        // Use sendBeacon for reliability on tab close
-        const url = `https://gbjkkjrxjfymmjbgymav.supabase.co/rest/v1/match_queue?id=eq.${queueIdRef.current}`;
-        navigator.sendBeacon(url); // best-effort
+        const url = `${import.meta.env.VITE_SUPABASE_URL ?? "https://gbjkkjrxjfymmjbgymav.supabase.co"}/rest/v1/match_queue?id=eq.${queueIdRef.current}`;
+        navigator.sendBeacon(url);
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      cleanup();
     };
-  }, [cleanup]);
+  }, [mode]);
 
   return { state, match, joinQueue, cleanup };
 }
